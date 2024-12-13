@@ -2148,20 +2148,18 @@ class IPAdapterTimeImageProjectionBlock(nn.Module):
         x = self.ln0(x)
         latents = self.ln1(latents) * (1 + scale_msa[:, None]) + shift_msa[:, None]
 
-        batch_size = latents.shape[0]
+        batch_size, seq_length, _ = latents.shape
 
         query = self.attn.to_q(latents)
         kv_input = torch.cat((x, latents), dim=-2)
-        kv = self.attn.to_kv(kv_input)
-        split_size = kv.shape[-1] // 2
-        key, value = torch.split(kv, split_size, dim=-1)
+        key, value = self.attn.to_kv(kv_input).chunk(2, dim=-1)
 
         inner_dim = key.shape[-1]
         head_dim = inner_dim // self.attn.heads
 
-        query = query.view(batch_size, -1, self.attn.heads, head_dim).transpose(1, 2)
-        key = key.view(batch_size, -1, self.attn.heads, head_dim).transpose(1, 2)
-        value = value.view(batch_size, -1, self.attn.heads, head_dim).transpose(1, 2)
+        query = query.view(batch_size, -1, self.attn.heads, head_dim).transpose(1, 2).reshape(batch_size, self.attn.heads, seq_length, -1)
+        key = key.view(batch_size, -1, self.attn.heads, head_dim).transpose(1, 2).reshape(batch_size, self.attn.heads, seq_length, -1)
+        value = value.view(batch_size, -1, self.attn.heads, head_dim).transpose(1, 2).reshape(batch_size, self.attn.heads, seq_length, -1)
 
         weight = (query * self.attn.scale) @ (key * self.attn.scale).transpose(-2, -1)
         weight = torch.softmax(weight.float(), dim=-1).type(weight.dtype)
